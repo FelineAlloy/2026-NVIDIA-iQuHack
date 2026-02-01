@@ -107,7 +107,7 @@ We implement a hybrid pipeline where quantum routines generate high-quality and 
 
 #### Strategy Overview
 
-Our quantum component is dominated by repeated execution and sampling of parameterized quantum circuits (DSWQA / Trotterized QAOA-like evolution) using **statevector-based simulation** in CUDA-Q. The computational cost scales exponentially with the number of qubits \(N\), both in **memory** \(O(2^N)\) and **compute** \(O(\text{depth} \cdot 2^N)\), making GPU selection, memory management, and parallelization strategy critical.
+Our quantum component is dominated by repeated execution and sampling of parameterized quantum circuits (DSWQA / Trotterized QAOA-like evolution) using **statevector-based simulation** in CUDA-Q. The computational cost scales exponentially with the number of qubits \(N\), both in **memory** $O(2^N)$ and **compute** $O(\text{depth} \cdot 2^N)$, making GPU selection, memory management, and parallelization strategy critical.
 
 Our approach prioritizes **performance per dollar of credits**, **iteration speed**, and **scalability**, rather than raw peak throughput.
 
@@ -116,9 +116,9 @@ Our approach prioritizes **performance per dollar of credits**, **iteration spee
 We explicitly evaluated available NVIDIA accelerators in the context of **short, repeated simulation jobs**, not long-running training workloads.
 
 **L4 (Ada Lovelace, 24 GB VRAM)** is our primary target:
-- Sufficient VRAM to support statevector simulation up to moderate \(N\);
+- Sufficient VRAM to support statevector simulation up to moderate $N$;
 - Strong FP16 / Tensor throughput well-suited to gate-dense circuit simulation;
-- Very good performance-per-credit, enabling approximately **20–30 GPU-hours** within a \(\sim\$20\) Brev credit budget;
+- Very good performance-per-credit, enabling approximately **20–30 GPU-hours** within a $\sim\$20$ Brev credit budget;
 - Ideal for parameter sweeps, schedule exploration, and repeated sampling runs.
 
 **T4 (Turing, 16 GB VRAM)** is acceptable only for early CPU-offloaded debugging:
@@ -127,7 +127,7 @@ We explicitly evaluated available NVIDIA accelerators in the context of **short,
 - Used only as a fallback development option.
 
 **A100 (Ampere, 40–80 GB VRAM)** is considered a production-only option:
-- Large VRAM enables single-GPU simulation at higher \(N\);
+- Large VRAM enables single-GPU simulation at higher $N$;
 - Significantly higher cost per hour, making it unsuitable for iterative tuning under tight credit constraints.
 
 **H100 (Hopper)** is excluded:
@@ -150,12 +150,12 @@ Once single-GPU memory limits are reached, we target **distributed statevector s
 
 - **Backend:** `nvidia-mgpu` (CUDA-Q)
 
-**Strategy:**
-- Shard the statevector across multiple L4 GPUs;
-- Use qubit ordering and circuit structure to minimize cross-GPU communication;
-- Favor gate patterns that reduce global synchronization overhead.
+- **Strategy:**
+    - Shard the statevector across multiple L4 GPUs;
+    - Use qubit ordering and circuit structure to minimize cross-GPU communication;
+    - Favor gate patterns that reduce global synchronization overhead.
 
-This phase enables exploration of **larger \(N\)** without switching to high-cost GPUs.
+This phase enables exploration of **larger $N$** without switching to high-cost GPUs.
 
 ##### Phase 3 — Final Benchmarks (Production)
 
