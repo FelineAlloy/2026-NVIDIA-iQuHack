@@ -1,7 +1,7 @@
 # Product Requirements Document (PRD)
 
-**Project Name:** MIT iQuHack LABS Solver: Combining MTS with VQE, WS-QAOA, and Guided Random Walk 
-**Team Name:** 103Qubits
+**Project Name:** MIT iQuHack LABS Solver: Combining MTS with VQE, WS-QAOA, and Guided Random Walk <br>
+**Team Name:** 103Qubits <br>
 **GitHub Repository:** https://github.com/FelineAlloy/2026-NVIDIA-iQuHack.git  
 
 ---
