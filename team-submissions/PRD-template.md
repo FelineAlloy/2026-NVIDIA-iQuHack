@@ -83,13 +83,67 @@ We build a hybrid system where **quantum generates “good starting strings”**
 **Owner:** GPU Acceleration PIC
 
 ### Quantum Acceleration (CUDA-Q)
-* **Strategy:** treat the quantum stage as a **high-throughput sampler** and accelerate it by batching “many small runs,” not by chasing one huge run.
-  * **GPU target:** use CUDA-Q’s NVIDIA backend on a single **L4** GPU (primary target).
-  * **Batching approach:**
-    - **Multi-start parallelism:** run multiple VQE initializations and WS-QAOA parameter sets as an embarrassingly-parallel workload (many independent circuits).
-    - **Shot batching:** generate many samples per circuit efficiently (seed factory behavior).
-    - **Depth control:** keep circuits shallow (small `p` for QAOA, short VQE budgets) because the classical stage is the real optimizer.
-  * **Why this matches L4:** L4 likes throughput. Many medium/small circuits + lots of shots tends to be more cost-effective than “one monster circuit.”
+
+#### Strategy Overview
+
+Our quantum component is dominated by repeated execution and sampling of parameterized quantum circuits (DSWQA / Trotterized QAOA-like evolution) using **statevector-based simulation** in CUDA-Q. The computational cost scales exponentially with the number of qubits \(N\), both in **memory** \(O(2^N)\) and **compute** \(O(\text{depth} \cdot 2^N)\), making GPU selection, memory management, and parallelization strategy critical.
+
+Our approach prioritizes **performance per dollar of credits**, **iteration speed**, and **scalability**, rather than raw peak throughput.
+
+#### GPU Selection Rationale (L4 vs T4 vs A100 vs H100)
+
+We explicitly evaluated available NVIDIA accelerators in the context of **short, repeated simulation jobs**, not long-running training workloads.
+
+**L4 (Ada Lovelace, 24 GB VRAM)** is our primary target:
+- Sufficient VRAM to support statevector simulation up to moderate \(N\);
+- Strong FP16 / Tensor throughput well-suited to gate-dense circuit simulation;
+- Very good performance-per-credit, enabling approximately **20–30 GPU-hours** within a \(\sim\$20\) Brev credit budget;
+- Ideal for parameter sweeps, schedule exploration, and repeated sampling runs.
+
+**T4 (Turing, 16 GB VRAM)** is acceptable only for early CPU-offloaded debugging:
+- Smaller memory footprint restricts feasible \(N\);
+- Lower throughput increases iteration latency;
+- Used only as a fallback development option.
+
+**A100 (Ampere, 40–80 GB VRAM)** is considered a production-only option:
+- Large VRAM enables single-GPU simulation at higher \(N\);
+- Significantly higher cost per hour, making it unsuitable for iterative tuning under tight credit constraints.
+
+**H100 (Hopper)** is excluded:
+- Its cost-to-benefit ratio is unfavorable for our challenge, making it unnecessary overkill.
+
+Overall, for our team’s workload and budget profile, **L4 provides the best acceleration-per-credit**. The **A100** is reserved only for final benchmark demonstrations if required.
+
+#### Concrete GPU Execution Plan
+
+##### Phase 1 — Single-GPU L4 (Primary Development)
+
+- **Backend:** CUDA-Q single-GPU statevector simulator on Brev L4  
+- **Purpose:** Parameter tuning, correctness validation, and exploratory sweeps  
+
+This phase maximizes **scientific output per GPU-hour** by enabling rapid iteration under tight credit constraints.
+
+##### Phase 2 — Multi-GPU Scaling
+
+Once single-GPU memory limits are reached, we target **distributed statevector simulation**.
+
+- **Backend:** `nvidia-mgpu` (CUDA-Q)
+
+**Strategy:**
+- Shard the statevector across multiple L4 GPUs;
+- Use qubit ordering and circuit structure to minimize cross-GPU communication;
+- Favor gate patterns that reduce global synchronization overhead.
+
+This phase enables exploration of **larger \(N\)** without switching to high-cost GPUs.
+
+##### Phase 3 — Final Benchmarks (Production)
+
+Depending on backend stability and cost efficiency:
+
+- **Preferred:** Multi-L4 `mgpu` backend (better cost scaling);
+- **Fallback:** Single **A100-80GB** GPU for maximum \(N\) on one device.
+
+This phase is **strictly limited to final demonstrations and result plots**.
 
 ### Classical Acceleration (MTS)
 * **Strategy:** GPU-accelerate the **hot loop** in MTS: repeated energy evaluation over large numbers of candidate moves (neighbor flips) during tabu/local search and population refinement.
@@ -115,10 +169,12 @@ We build a hybrid system where **quantum generates “good starting strings”**
   * **Expected impact:** MTS spends most runtime inside neighbor/energy evaluation. Batching those computations on the GPU should provide the largest speedup per engineering effort on an L4 instance.
 
 ### Hardware Targets
-* **Dev Environment:** qBraid CPU backend for logic + correctness  
-* **Production Environment:** Brev **L4** for GPU acceleration and final benchmarking
+**Dev Environment:**  
+qBraid CPU backend for algorithmic logic, kernel correctness, and small-\(N\) self-validation, Brev L4 for initial GPU testing. 
 
----
+**Production Environment:**  
+Brev **L4** GPU backend for CUDA-Q acceleration, large-\(N\) sampling experiments, and final benchmark runs, with multi-L4 scaling via the `nvidia-mgpu` backend when available. We will also look into the possibility of turning to Brev A100-80GB.
+
 
 ## 4. The Verification Plan
 **Owner:** Quality Assurance PIC
