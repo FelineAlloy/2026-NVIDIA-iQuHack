@@ -153,28 +153,26 @@ We build a hybrid system where **quantum generates “good starting strings”**
   - Seeds from quantum stages should be **better than random on average**:
     - compare distributions of `E(seed)` vs `E(random)` for same `N`.
   - MTS seeded by WS-QAOA should beat or match MTS seeded randomly under equal wall-clock/iteration budgets.
-
 ---
 
-## 5. Execution Strategy & Success Metrics
-**Owner:** Technical Marketing PIC
+## 5. Execution Strategy & Success Metrics  
+**Owner:** Technical Marketing PIC  
 
 ### Agentic Workflow
-* **Orchestration Strategy:** Human-in-the-loop CI/CD pipeline.
-  - **Code Generation:** AI agents generate CUDA-Q kernels and GPU batch-evaluation code from *explicit* Hamiltonian / data-shape prompts.
-  - **Verification Loop:** QA Lead runs tests first; failures are pasted back to the agent until tests pass.
-  - **Documentation:** maintain a `skills.md` file of CUDA-Q “gotchas” + working code patterns to prevent API hallucinations.
+- **Orchestration Strategy:** We implement a *human-in-the-loop* CI/CD pipeline.
+  - *Code Generation:* AI agents (via Gemini Pro 3.0 / Claude 3.5 Sonnet) generate CUDA-Q kernels based on specific physics Hamiltonian prompts.
+  - *Verification Loop:* The QA Lead writes unit tests *first* (TDD). Failing logs are fed back to the agent to iteratively refactor the code until all tests pass.
+  - *Documentation:* We maintain a live `skills.md` file containing the latest CUDA-Q API documentation to prevent agent hallucinations.
 
 ### Success Metrics
-* **Metric 1 (Quality — Merit Factor):** achieve **Merit Factor `F >= 8.0`** for lengths up to `N = 60`.
-* **Metric 2 (Performance — Time-to-Solution):** achieve **≥ 50× speedup** for the tabu/energy-evaluation phase using CuPy (GPU) vs NumPy (CPU) at `N = 50`.
-* **Metric 3 (Scalability):** successfully run the full **Quantum Seed + Classical Optimize** workflow for `N = 100` within **< 5 minutes** wall-clock.
+- **Metric 1 (Quality — Merit Factor Focus):** Achieve a **Merit Factor** \(F\) **≥ 8.0** for sequence lengths up to **\(N = 60\)**. This ensures our hybrid solver produces sequences with high “energy efficiency” relative to their length (important for signal processing).
+- **Metric 2 (Performance — Time-to-Solution):** Achieve at least **50× speedup** for the **TABU search phase** using `CuPy` (GPU) parallel evaluation compared to the baseline `NumPy` (CPU) implementation for **\(N = 50\)**.
+- **Metric 3 (Scalability):** Successfully execute the **Quantum Seed + Classical Optimize** workflow for **\(N = 100\)** within **under 5 minutes**.
 
 ### Visualization Plan
-* **Plot 1:** “Quantum Advantage” curve — Time-to-Solution (log scale) vs N, comparing CPU baseline vs GPU-accelerated hybrid.
-* **Plot 2:** Search landscape exploration heatmap — show quantum seeding starts closer to low-energy basins vs random starts.
-* **Plot 3:** Energy convergence profile — Energy vs iteration showing hybrid converges faster (fewer steps) than standard local search.
-
+- **Plot 1: The “Quantum Advantage” Curve:** Dual-axis line chart showing **Time-to-Solution (log scale)** vs **Problem Size \(N\)**. One line for CPU baseline, one for GPU-accelerated. A widening gap demonstrates success.
+- **Plot 2: Landscape Exploration Heatmap:** 2D visualization highlighting how the **Quantum Seed** places the solver closer to the global minimum (low-energy valley) compared to a random start.
+- **Plot 3: Energy Convergence Profile:** Plot of **\(E(S)\)** vs **Iterations**, showing our Hybrid MTS reaches low energies in fewer steps than standard local search.
 ---
 
 ## 6. Resource Management Plan
