@@ -1,50 +1,186 @@
-## Deliverables Checklist
+# 02_ws-qaoa_LABS.ipynb — Hybrid Quantum–Classical LABS Solver  
+**(WS-QAOA seeding + GPU-Accelerated Memetic Tabu Search)**
 
-**Step 0: (Due by noon eastern Sat Jan 31)**
-The Project Lead should fork this repository and share the forked repository link with the NVIDIA judges in a DM on discord (`Monica-NVIDIA`, `Linsey-NV Mentor`, and `Iman_nvidia`).  
+This notebook is our **Phase 2 submission** for the NVIDIA iQuHACK LABS challenge. It implements a **hybrid quantum–classical optimization pipeline** for the Low Autocorrelation Binary Sequences (LABS) problem.
 
-**Phase 1 Submission (Due 10pm eastern Sat Jan 31):**
-(To be judged to obtain access to GPUs with Brev credits)
-* [ ] **Tutorial Notebook:** Completed [01_quantum_enhanced_optimization_LABS.ipynb](https://github.com/iQuHACK/2026-NVIDIA/blob/main/tutorial_notebook/01_quantum_enhanced_optimization_LABS.ipynb) including your "Self-Validation" section.
-* [ ] **PRD:** `PRD.md` defining your plan.  See [Milestone 1 in the challenge description]([LABS-challenge-Phase1.md](https://github.com/iQuHACK/2026-NVIDIA/blob/main/LABS-challenge-Phase1.md)) and the [PRD-template.md](PRD-template.md) file.
-* [ ] **Notify the judges in discord:** DM `Monica-NVIDIA`, `Linsey-NV Mentor`, and `Iman_nvidia` that your phase 1 deliverables are ready to be judged.   
+Our core idea is simple and deliberate:
 
-**Phase 2 Submission (Due 10am eastern Sun Feb 1):**
+- **Quantum routines** (Warm-Start QAOA + Mini-VQE) are used to generate *biased, high-quality initial samples*.
+- These samples are then refined by a **GPU-accelerated Memetic Tabu Search (MTS)**, which performs the main optimization work efficiently at scale.
 
-* [ ] **Final Code:** Notebooks and scripts for the Milestone 3 implementation. Add these files to a folder in this directory.  Include a README.md to guide the judges if you have multiple files.
-* [ ] **Test Suite:** `tests.py` or other documentation or scripts used for verifying your work. 
-* [ ] **AI Report:** `AI_REPORT.md` (See [AI_REPORT-template.md](AI_REPORT-template.md)).
-* [ ] **Presentation:** Slides (Live) or MP4 (Remote).
+This notebook is fully self-contained and is intended to be **run directly by judges** to reproduce our results.
 
-## Evaluation Criteria: How You Will Be Graded
+---
 
-This challenge is graded on **Rigorous Engineering**, not just raw speed. We are simulating a professional delivery pipeline. Your score is split between your planning (40%) and final product(60%).
+## Notebook structure (what you will find)
 
-### Phase 1: The Plan (40% - Early Submission)
-*Goal: Prove you have a viable strategy before we release GPU credits.*
+### 1) LABS objective and utilities
+This section defines the LABS cost function and symmetry handling:
+- `compute_energy(...)`, `compute_energy_cpu(...)`: LABS energy via squared autocorrelations.
+- Canonicalization and deduplication:
+  - `canonicalize_sequence`
+  - `canonical_key`
+  - `deduplicate_population`
 
-* **The Self-Validation from Milestone 1 [5 points]:** Did you prove your tutorial baseline was correct? We look for rigorous checks (e.g., symmetry verification, small N brute-force) rather than just "it looks right."
-* **The PRD Quality from Milestone 2 [35 points]:**
-    * **Architecture:** Did you cite literature to justify your quantum algorithm choice? Deep research drives high scores. We explicitly reward teams that take Scientific Risks over those who play it safe.
-    * **Acceleration:** Do you have a concrete plan for GPU memory management and parallelization?
-    * **Verification:** Did you commit to specific physical correctness checks (e.g., `energy(x) == energy(-x)`)?
-    * **Success Metrics:** Did you define quantifiable targets?
+These utilities ensure correctness and avoid redundant evaluations due to LABS symmetries.
 
+---
 
-### Phase 2: The Product (60% - Final Submission)
-*Goal: Prove your solution works, scales, and is verified.*
+### 2) GPU-batched energy evaluation
+Energy evaluation is the dominant cost in MTS. We explicitly restructure it into **batch operations**:
+- `energy_batch(...)`: batched energy computation (CPU or GPU via CuPy).
+- `neighbors_energy_batch(...)`: parallel evaluation of single-bit-flip neighbors.
 
-* **Performance, Scale, and Creativity [20 points]:**
-    * Does the solution scale to larger $N$?
-    * Did you successfully accelerate the *Classical* component (e.g., using `cupy` for batch neighbor evaluation) or did you only accelerate the quantum circuit?
-    * We reward the **rigorous implementation of creative ideas**. If your novel experiment fails to beat the baseline, document *why* in your report. A "Negative Result" backed by great engineering is a success.
-    * Make sure to document which GPUs you used for each of your results for fair comparisons
-* **Verification [20 points]:**
-    * How much of your code is covered by the `tests.py` suite?
-    * Does the test suite catch physical violations?
-* **Communication & Analysis [20 points]:**
-    * **Visualizations:** We expect professional data plotting. Do not just paste screenshots of code. We want to see generated plots (Time vs. N, Approximation Ratio vs. N) with clearly labeled axes comparing CPU vs. GPU performance.
-    * **The Narrative:** Your presentation must tell the story of "The Plan & The Pivot." Did you identify *why* you had to change your strategy?
-    * **The AI Report:** Your `AI_REPORT.md` must demonstrate *how* you verified AI-generated code, including specific examples of "Wins" and "Hallucinations."
+This is the primary performance optimization in the notebook.
 
-> For submissions, please place the deliverables in the `teams-submissions` directory of your forked repository and notify the judges.
+---
+
+### 3) Classical optimizer: Memetic Tabu Search (MTS)
+The classical search pipeline consists of:
+- Genetic operators:
+  - `combine(...)` (crossover)
+  - `mutate(...)`
+- Local optimization:
+  - `tabu_search(...)` using batched neighborhood evaluation
+- Full loop:
+  - `memetic_tabu_search(...)`
+
+This component refines candidate sequences into low-energy LABS solutions.
+
+---
+
+### 4) Quantum seeding: WS-QAOA + Mini-VQE
+This section constructs and executes the quantum sampling stage:
+- Mini-VQE components:
+  - `vqe_ansatz(...)`
+  - `cost_function(...)`
+- Warm-start QAOA pipeline:
+  - `build_labs_hamiltonian(...)`
+  - `get_interactions(...)`
+  - `pauli_string_rotation(...)`
+  - `trotterized_circuit(...)`
+  - `generate_quantum_population(...)`
+
+The output is a **biased initial population** for MTS, outperforming random initialization.
+
+---
+
+### 5) Guided quantum diversification (“quantum kick”)
+To escape stagnation, we introduce a controlled diversification mechanism:
+- `labs_gqw_kernel(...)`
+- `quantum_kick_search(...)`
+
+These routines inject new quantum-generated candidates when classical progress plateaus.
+
+---
+
+### 6) Experiment harness and visualization
+This final section handles execution and reporting:
+- `run_benchmark(...)`
+- `run_full_experiment(...)`
+- `visualize_results(...)`
+- `plot_labs_histogram(...)`
+- `append_jsonl(...)`, `get_system_metadata(...)` for logging results and hardware info
+
+---
+
+## How to run the notebook (judge workflow)
+
+1. **Run all cells from top to bottom**.
+   - All functions and configuration switches are defined before execution blocks.
+2. Select runtime settings in the **configuration section**:
+   - CPU vs GPU
+   - precision
+3. Execute the provided experiment cells.
+   - The notebook will automatically:
+     - generate quantum samples
+     - run MTS refinement
+     - log results
+     - produce plots
+
+No external scripts are required.
+
+---
+
+## Configuration options (important)
+
+### Backend and precision
+Defined near the top of the notebook:
+- `MODE = "auto"`  
+  Options: `"auto" | "cpu" | "gpu" | "mgpu"`
+- `PRECISION = "fp32"`  
+  Options: `"fp32" | "fp64"`
+
+Interpretation:
+- **auto**: GPU if available, otherwise CPU.
+- **gpu**: force single-GPU execution.
+- **mgpu**: multi-GPU execution (useful only for larger runs).
+- **fp32**: default and recommended for performance.
+- **fp64**: higher numerical precision, slower.
+
+---
+
+## Expected outputs
+
+When the notebook is run successfully, it produces:
+- The **best LABS sequence** found (±1 representation).
+- Its corresponding **energy**.
+- Histograms and plots comparing:
+  - quantum samples
+  - initial populations
+  - post-MTS refined populations
+- A **JSONL log file** containing:
+  - problem size
+  - runtime configuration
+  - timing and evaluation counts
+  - system and GPU metadata
+
+---
+
+## Correctness and validation checks
+
+We explicitly verify correctness throughout the notebook via:
+
+1. **LABS symmetry checks**
+   - Global flip invariance: `E(s) = E(-s)`
+   - Reversal invariance: `E(s) = E(s[::-1])`
+
+2. **CPU vs GPU consistency**
+   - Batched GPU energy results are cross-checked against CPU reference computations.
+
+3. **Neighborhood evaluation sanity**
+   - GPU-batched neighbor ranking matches brute-force CPU results.
+
+4. **Deduplication correctness**
+   - Symmetry-equivalent sequences map to the same canonical form.
+
+5. **Small-N ground truth**
+   - For small N, results are validated against brute-force optima.
+
+These checks ensure both **numerical correctness** and **algorithmic validity**.
+
+---
+
+## Notes on GPU execution (Brev)
+
+The notebook is compatible with Brev-based GPU environments.  
+GPU usage is automatic when available and requires no code changes.
+
+---
+
+## Role in the iQuHACK submission
+
+This notebook represents our **Phase 2 final implementation**, demonstrating:
+- a hybrid quantum–classical workflow,
+- GPU acceleration of the classical core,
+- and systematic validation.
+
+It is designed to be the **primary artifact** for evaluating our technical contribution.
+
+---
+
+## References
+
+- NVIDIA iQuHACK LABS challenge specification and milestones  
+- QE-MTS / DCQO literature motivating quantum-assisted seeding  
+- LABS problem symmetry and optimization background
