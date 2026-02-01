@@ -195,40 +195,22 @@ qBraid CPU backend for algorithmic logic, kernel correctness, and small $N$ self
 **Production Environment:**  
 Brev **L4** GPU backend for CUDA-Q acceleration, large $N$ sampling experiments, and final benchmark runs, with multi-L4 scaling via the `nvidia-mgpu` backend when available. We will also look into the possibility of turning to Brev A100-80GB.
 
+---
 
-## 4. The Verification Plan
+## 4. Verification & Validation Plan
 **Owner:** Quality Assurance PIC
+### Correctness & Consistency
+- **Unit testing (TDD):** kernels/modules are test-driven using `pytest`. AI-generated code is merged after passing symmetry, and small-N ground-truth tests.
+- **Symmetry invariance:** For any sequence `S`, energies must satisfy:  `E(S) == E(-S)` and `E(S) == E(reverse(S))`
+- **Canonicalisation is idempotent:** `canon(canon(S)) == canon(S)`
+- **Small-N ground truth:** For $N < 10$, brute-force enumeration of all $2^N$ sequences matches energy values and known optima.
+### Quantum Seed Validation
+ WS-QAOA energy histograms are visibly shifted toward lower energies compared to random sampling.
+### Performance & Scaling
+Time to solution vs N plot shows a shallower slope for the hybrid solver than the baseline.
+### Reproducibility
+All runs use fixed random seeds, committed scripts, and record N, wall-clock time, evaluation count, and hardware backend.
 
-### Unit Testing Strategy
-* **Framework:** `pytest`
-* **AI Hallucination Guardrails (how we trust AI-generated code):**
-  - Tests are written **first** for all kernels/modules (TDD).
-  - Any AI-generated optimization must pass:
-    - **symmetry properties**,  
-    - **CPU vs GPU equivalence checks**,  
-    - **small-N brute force ground truth**,  
-    before it can be merged.
-
-### Core Correctness Checks
-* **Check 1 (Symmetry invariance):**
-  - For any sequence `S`, energies must satisfy:  
-    `E(S) == E(-S)` and `E(S) == E(reverse(S))`
-  - Canonicalisation must preserve energy and be idempotent:  
-    `canon(canon(S)) == canon(S)`
-
-* **Check 2 (Ground truth for small N):**
-  - For small sizes (e.g., `N <= 10`), brute force all `2^N` sequences on CPU and confirm:
-    - energy function matches brute force outputs
-    - reported best solution matches known brute-force optimum (energy and/or merit factor)
-
-* **Check 3 (CPU/GPU consistency):**
-  - For random batches of sequences, assert:  
-    `energy_cpu(S_batch) == energy_gpu(S_batch)` (within exact integer equality if we keep integer arithmetic).
-
-* **Check 4 (Pipeline sanity checks):**
-  - Seeds from quantum stages should be **better than random on average**:
-    - compare distributions of `E(seed)` vs `E(random)` for same `N`.
-  - MTS seeded by WS-QAOA should beat or match MTS seeded randomly under equal wall-clock/iteration budgets.
 ---
 
 ## 5. Execution Strategy & Success Metrics  
