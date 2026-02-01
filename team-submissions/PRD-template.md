@@ -1,7 +1,7 @@
 # Product Requirements Document (PRD)
 
-**Project Name:** MIT iQuHack LABS Solver: Combining MTS with VQE, WS-QAOA, and Guided Random Walk 
-**Team Name:** 103Qubits
+**Project Name:** MIT iQuHack LABS Solver: Combining MTS with VQE, WS-QAOA, and Guided Random Walk <br>
+**Team Name:** 103Qubits <br>
 **GitHub Repository:** https://github.com/FelineAlloy/2026-NVIDIA-iQuHack.git  
 
 ---
@@ -19,63 +19,84 @@
 
 ---
 
-## 2. The Architecture
-**Owner:** Project Lead
+### 2. Pipeline Overview
+We implement a hybrid pipeline where quantum routines generate high-quality and diverse initial candidates, and a classical Memetic Tabu Search (MTS) performs the main optimization. The pipeline is:
 
-### Pipeline Overview
-We build a hybrid system where **quantum generates “good starting strings”**, and **classical MTS does the heavy lifting** (deep local improvement + recombination). Our full pipeline is:
+1. **VQE Warm-Start Generator:** run short, parallel/multi-start VQE to produce a small set of strong candidate strings (starting positions).
+2. **WS-QAOA Seed Sampler:** use those candidates as warm starts for WS-QAOA to generate a large pool of biased, low-energy bitstring samples.
+3. **MTS Refinement (with canonicalisation + deduplication):** canonicalise seeds to remove symmetry-equivalent duplicates, deduplicate the seed pool, then run MTS as the primary refinement engine.
+4. **Guided Random Walk Restarts:** detect stagnation (no improvement over a fixed window) and inject new candidates produced by a guided random walk sampler to escape local minima, followed by canonicalisation and reinsertion into the population.
 
-1. **VQE Warm-Start Generator**  
-   Run many *short* VQE runs (multi-start) to produce a small set of strong candidate strings (starting positions).
+---
 
-2. **Warm-Start QAOA (WS-QAOA) Seed Sampler**  
-   Use those VQE candidates as warm-start anchors and sample a larger pool of low-energy-biased bitstrings.
+### Choice of Quantum Algorithms
 
-3. **MTS + Canonicalisation + Deduplication**  
-   Refine the seed population using a modified MTS where we:
-   - canonicalize each string under known symmetries (global flip + reversal),
-   - deduplicate to keep population slots “meaningfully different,”
-   - keep MTS mechanics intact but accelerate the expensive evaluation loops.
+- **Algorithm 1 (Warm-Start Generator): VQE**
+  - **Role in pipeline:** VQE is used to generate a small set of strong *starting positions* (candidate sequences) that serve as warm-start anchors.
+  - **Motivation:** VQE can efficiently refine parameters toward low-energy configurations, producing higher-quality starting points than purely random initialisation. We run multiple short VQE instances (multi-start) to obtain diverse candidates rather than relying on a single converged solution.
 
-4. **Guided Random Walk Restarts (stagnation escape)**  
-   When MTS stagnates, trigger guided random walk sampling to inject new candidates and escape local minima.
+- **Algorithm 2 (Seed Sampler): Warm-Start QAOA (WS-QAOA)**
+  - **Role in pipeline:** WS-QAOA uses VQE-produced candidates as warm starts and generates a large set of measurement samples (bitstrings) that are biased toward low energy.
+  - **Motivation:** Our objective is not to solve LABS purely with quantum, but to produce a *seed population* that improves time-to-solution for MTS. WS-QAOA is suited for this because it can produce many candidate bitstrings at shallow depth, which is practical under GPU simulation constraints.
 
-### Choice of Quantum Algorithm
-* **Algorithm(s):**
-  * **Warm-Start Generator:** **VQE**
-  * **Seed Sampler:** **Warm-Start QAOA (WS-QAOA)**
-  * **Restart / Escape Hatch:** **Guided Random Walk Sampler**
+- **Algorithm 3 (Stagnation Escape): Guided Random Walk Sampler**
+  - **Role in pipeline:** When MTS stagnates, we trigger a guided random walk procedure to generate new candidate strings for reinjection into the population.
+  - **Motivation:** LABS has a rugged energy landscape with many local minima. A guided random walk provides non-local exploration and supports controlled restarts without replacing the fast inner-loop mechanics of MTS.
 
-* **Motivation (why these fit LABS + our pipeline):**
-  * **VQE**: produces *better-than-random* starting strings fast. We don’t need perfect convergence; we need several “pretty good” anchors that are diverse.
-  * **WS-QAOA**: acts like a **seed factory**. It can produce lots of candidate strings at relatively shallow depth, biased toward low energy, which is exactly what we want before the classical search.
-  * **Guided Random Walk**: LABS has many local minima. Instead of making quantum do everything, we use it as a controlled “jump generator” when the classical search gets stuck.
+---
 
-### Classical Optimization Core: MTS with Canonicalisation and Deduplication
-* **Canonicalisation:** map each candidate sequence to a **canonical representative** under LABS symmetries (**global sign flip** and **sequence reversal**). This prevents multiple equivalent encodings from occupying population slots.
-* **Deduplication:** remove duplicate canonical representatives:
-  - **before** population construction, and
-  - **before** reinjection during restarts.
-* **Parallelisation (how we scale MTS without rewriting it into chaos):**
-  - **Population-level parallelism:** children in a generation can be processed independently → evaluate and locally improve them in GPU batches.
-  - **Tabu/local-search parallelism (candidate lists):** instead of evaluating all `N` one-bit flips one-by-one, evaluate a **candidate list** of `B` flips (e.g., 64 or 128) in a single batched GPU call and pick the best move.
-* **Motivation:** canonicalisation + deduplication increase *effective* diversity, reduce wasted evaluation on symmetry copies, and make both quantum seeding and MTS refinement more efficient end-to-end.
+### Classical Optimization Core: MTS with Canonicalisation, Deduplication, and Parallelisation
+
+- **Canonicalisation:** we map each candidate sequence to a canonical representative under known LABS symmetries (global sign flip and sequence reversal) to prevent multiple equivalent encodings from occupying population slots.
+
+- **Deduplication:** we remove duplicate canonical representatives before population construction and before reinjection during restarts.
+
+- **Parallelisation:** we parallelise MTS at the *batch level* to exploit GPU throughput while keeping the MTS logic unchanged.
+  - **Population-level parallelism:** each generation produces multiple children (via combine/mutation). Their energy evaluation and initial local-improvement steps are independent, so we process children in batches on the GPU.
+  - **Tabu/local-search parallelism (candidate lists):** within tabu search, instead of checking all \(N\) single-bit flips sequentially, we evaluate a candidate list of \(B\) flips (e.g., \(B=64\) or \(128\)) in parallel by computing the energies of all \(B\) neighbors in one batched GPU call. The best admissible move is selected and applied.
+  - **Energy-evaluation batching:** all repeated objective evaluations (children energies, neighbor energies, restart-injected seed energies) are computed as large matrix operations on the GPU rather than Python loops.
+
+- **Motivation:** canonicalisation + deduplication increase *effective* population diversity and prevent wasted compute on symmetry-equivalent solutions, while parallelisation ensures that the most expensive operation in MTS (repeated energy evaluation across many candidates) is executed efficiently on the GPU. Together, these changes reduce wasted evaluations and improve end-to-end time-to-solution.
+
+---
 
 ### Literature Review
-* **Reference:** *Scaling advantage with quantum-enhanced memetic tabu search for LABS* (Cadavid et al., 2025). https://arxiv.org/abs/2511.04553  
-  **Relevance:** establishes the core pattern we follow: quantum-generated seeds + classical MTS refinement, with scaling/time-to-solution benchmarking mindset.
-* **Reference:** *Warm-starting quantum optimization* (Egger, Mareček, Woerner, 2021). https://quantum-journal.org/papers/q-2021-06-17-479/  
-  **Relevance:** motivates why warm-starting can yield more useful low-depth quantum behavior (perfect for seed generation).
-* **Reference:** *A Quantum Approximate Optimization Algorithm* (Farhi, Goldstone, Gutmann, 2014). https://arxiv.org/abs/1411.4028  
-  **Relevance:** baseline QAOA framework; we adapt it into WS-QAOA as a sampler.
-* **Reference:** *A variational eigenvalue solver on a quantum processor* (Peruzzo et al., 2014). https://www.nature.com/articles/ncomms5213  
-  **Relevance:** foundational VQE reference supporting our VQE warm-start stage.
-* **Reference:** *Guided quantum walk* (Schulz, 2024). https://link.aps.org/doi/10.1103/PhysRevResearch.6.013312  
-  **Relevance:** motivates quantum-walk-style exploration for “jumping” to new regions when MTS stagnates.
-* **Reference:** *New Improvements in Solving Large LABS Instances Using Massively Parallelizable Memetic Tabu Search* (Zhang et al., 2025). https://arxiv.org/abs/2504.00987  
-  **Relevance:** reinforces that MTS remains strong for large LABS and highlights the value of parallelising the classical core.
-* **Reference:** *Evidence of Scaling Advantage for the QAOA on a Classically Intractable Problem* (Shaydulin et al., 2023/2024). https://arxiv.org/abs/2308.02342  
-  **Relevance:** domain-relevant QAOA-on-LABS baseline that helps justify hybridizing and warm-starting.
+
+- **Reference:** *Scaling advantage with quantum-enhanced memetic tabu search for LABS* (A. G. Cadavid, P. Chandarana, S. V. Romero, J. Trautmann, E. Solano, T. L. Patti, N. N. Hegade, 2025). https://arxiv.org/abs/2511.04553  
+  **Relevance:**
+  - Establishes the core hybrid pattern we build on: **quantum-generated seeds** + **classical MTS refinement**.
+  - Motivates why **non-local sampling** (quantum) helps on LABS’ rugged landscape, while **MTS** does the heavy local improvement.
+  - Provides a benchmark mindset (time-to-solution / scaling) that we can reuse for fair comparisons.
+
+- **Reference:** *Warm-starting quantum optimization* (D. J. Egger, J. Mareček, S. Woerner, 2021). https://quantum-journal.org/papers/q-2021-06-17-479/  
+  **Relevance:**
+  - Justifies the idea behind our pipeline: don’t start quantum search from “pure randomness” if we can start from a **decent classical guess**.
+  - Supports using warm-starts to get **useful low-depth performance**, which matters when we need many samples (seed factory behavior).
+
+- **Reference:** *A Quantum Approximate Optimization Algorithm* (E. Farhi, J. Goldstone, S. Gutmann, 2014). https://arxiv.org/abs/1411.4028  
+  **Relevance:**
+  - Provides the baseline QAOA framework that WS-QAOA modifies.
+  - Gives the simplest conceptual model for “layered quantum improvement + mixing,” which we adapt into a seed generator rather than a standalone solver.
+
+- **Reference:** *A variational eigenvalue solver on a quantum processor* (A. Peruzzo et al., 2014). https://www.nature.com/articles/ncomms5213  
+  **Relevance:**
+  - Foundational VQE reference motivating our **VQE warm-start generator** stage.
+  - Supports the design pattern “short variational runs can find a good region,” which we then use as a starting anchor for WS-QAOA sampling.
+
+- **Reference:** *Guided quantum walk* (S. Schulz, 2024). https://link.aps.org/doi/10.1103/PhysRevResearch.6.013312  
+  **Relevance:**
+  - Motivates our **restart sampler**: use a quantum-walk-style exploration method to **jump to new regions** when MTS stagnates.
+  - Matches our “quantum as exploration / escape hatch” role (non-local moves), rather than putting quantum inside every MTS step.
+
+- **Reference:** *New Improvements in Solving Large LABS Instances Using Massively Parallelizable Memetic Tabu Search* (Z. Zhang, J. Shen, N. Kumar, M. Pistoia, 2025). https://arxiv.org/abs/2504.00987  
+  **Relevance:**
+  - Supports our “GPU-first” mindset: most runtime is in classical search, so accelerating MTS components is a major performance lever.
+  - Reinforces that MTS-style heuristics remain state-of-the-art for large LABS instances, so improving MTS efficiency directly improves end-to-end results.
+
+- **Reference:** *Evidence of Scaling Advantage for the Quantum Approximate Optimization Algorithm on a Classically Intractable Problem* (R. Shaydulin et al., 2023). https://arxiv.org/abs/2308.02342  
+  **Relevance:**
+  - Directly studies QAOA on **LABS**, giving us a domain-relevant baseline for what “plain QAOA” can do.
+  - Helps motivate why we treat QAOA as a component (seed generator) and why warm-starting / hybridization may be beneficial.
 
 ---
 
@@ -209,27 +230,26 @@ Brev **L4** GPU backend for CUDA-Q acceleration, large-\(N\) sampling experiment
   - Seeds from quantum stages should be **better than random on average**:
     - compare distributions of `E(seed)` vs `E(random)` for same `N`.
   - MTS seeded by WS-QAOA should beat or match MTS seeded randomly under equal wall-clock/iteration budgets.
-
 ---
 
-## 5. Execution Strategy & Success Metrics
-**Owner:** Technical Marketing PIC
+## 5. Execution Strategy & Success Metrics  
+**Owner:** Technical Marketing PIC  
 
 ### Agentic Workflow
-* **Orchestration Strategy:** Human-in-the-loop CI/CD pipeline.
-  - **Code Generation:** AI agents generate CUDA-Q kernels and GPU batch-evaluation code from *explicit* Hamiltonian / data-shape prompts.
-  - **Verification Loop:** QA Lead runs tests first; failures are pasted back to the agent until tests pass.
-  - **Documentation:** maintain a `skills.md` file of CUDA-Q “gotchas” + working code patterns to prevent API hallucinations.
+- **Orchestration Strategy:** We implement a “Human-in-the-loop” CI/CD pipeline.
+  - *Code Generation:* AI agents (via Gemini Pro 3.0 / Claude 3.5 Sonnet) generate CUDA-Q kernels based on specific physics Hamiltonian prompts.
+  - *Verification Loop:* The QA Lead writes unit tests *first* (TDD). Failing logs are fed back to the agent to iteratively refactor the code until all tests pass.
+  - *Documentation:* We maintain a live `skills.md` file containing the latest CUDA-Q API documentation to prevent agent hallucinations.
 
 ### Success Metrics
-* **Metric 1 (Quality — Merit Factor):** achieve **Merit Factor `F >= 8.0`** for lengths up to `N = 60`.
-* **Metric 2 (Performance — Time-to-Solution):** achieve **≥ 50× speedup** for the tabu/energy-evaluation phase using CuPy (GPU) vs NumPy (CPU) at `N = 50`.
-* **Metric 3 (Scalability):** successfully run the full **Quantum Seed + Classical Optimize** workflow for `N = 100` within **< 5 minutes** wall-clock.
+- **Metric 1 (Quality — Merit Factor Focus):** Achieve a **Merit Factor** \(F\) **≥ 8.0** for sequence lengths up to **\(N = 60\)**. This ensures our hybrid solver produces sequences with high “energy efficiency” relative to their length, a key requirement in signal processing.
+- **Metric 2 (Performance — Time-to-Solution):** Achieve at least **50× speedup** for the **TABU search phase** using `CuPy` (GPU) parallel evaluation compared to the baseline `NumPy` (CPU) implementation for **\(N = 50\)**.
+- **Metric 3 (Scalability):** Successfully execute the **Quantum Seed + Classical Optimize** workflow for **\(N = 100\)** within the strict time limit of **under 5 minutes**.
 
 ### Visualization Plan
-* **Plot 1:** “Quantum Advantage” curve — Time-to-Solution (log scale) vs N, comparing CPU baseline vs GPU-accelerated hybrid.
-* **Plot 2:** Search landscape exploration heatmap — show quantum seeding starts closer to low-energy basins vs random starts.
-* **Plot 3:** Energy convergence profile — Energy vs iteration showing hybrid converges faster (fewer steps) than standard local search.
+- **Plot 1: The “Quantum Advantage” Curve:** A dual-axis line chart showing *Time-to-Solution (log scale)* vs *Problem Size \(N\)*. One line for CPU baseline, one for GPU-accelerated. The widening gap demonstrates our success.
+- **Plot 2: Landscape Exploration Heatmap:** A 2D visualization of the search space, highlighting how the *Quantum Seed* lands the solver closer to the global minimum (low energy valley) compared to a random start.
+- **Plot 3: Energy Convergence Profile:** A plot of \(E(S)\) vs iterations, proving that our Hybrid MTS converges to the optimal solution with fewer steps than standard local search.
 
 ---
 
