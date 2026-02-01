@@ -118,11 +118,11 @@ We explicitly evaluated available NVIDIA accelerators in the context of **short,
 **L4 (Ada Lovelace, 24 GB VRAM)** is our primary target:
 - Sufficient VRAM to support statevector simulation up to moderate $N$;
 - Strong FP16 / Tensor throughput well-suited to gate-dense circuit simulation;
-- Very good performance-per-credit, enabling approximately **20–30 GPU-hours** within a $\sim\$20$ Brev credit budget;
+- Very good performance-per-credit, enabling approximately **20–30 GPU-hours** within a 20$ Brev credit budget;
 - Ideal for parameter sweeps, schedule exploration, and repeated sampling runs.
 
 **T4 (Turing, 16 GB VRAM)** is acceptable only for early CPU-offloaded debugging:
-- Smaller memory footprint restricts feasible \(N\);
+- Smaller memory footprint restricts feasible $N$;
 - Lower throughput increases iteration latency;
 - Used only as a fallback development option.
 
@@ -162,7 +162,7 @@ This phase enables exploration of **larger $N$** without switching to high-cost 
 Depending on backend stability and cost efficiency:
 
 - **Preferred:** Multi-L4 `mgpu` backend (better cost scaling);
-- **Fallback:** Single **A100-80GB** GPU for maximum \(N\) on one device.
+- **Fallback:** Single **A100-80GB** GPU for maximum $N$ on one device.
 
 This phase is **strictly limited to final demonstrations and result plots**.
 
@@ -191,10 +191,10 @@ This phase is **strictly limited to final demonstrations and result plots**.
 
 ### Hardware Targets
 **Dev Environment:**  
-qBraid CPU backend for algorithmic logic, kernel correctness, and small-\(N\) self-validation, Brev L4 for initial GPU testing. 
+qBraid CPU backend for algorithmic logic, kernel correctness, and small-$N$ self-validation, Brev L4 for initial GPU testing. 
 
 **Production Environment:**  
-Brev **L4** GPU backend for CUDA-Q acceleration, large-\(N\) sampling experiments, and final benchmark runs, with multi-L4 scaling via the `nvidia-mgpu` backend when available. We will also look into the possibility of turning to Brev A100-80GB.
+Brev **L4** GPU backend for CUDA-Q acceleration, large-$N$ sampling experiments, and final benchmark runs, with multi-L4 scaling via the `nvidia-mgpu` backend when available. We will also look into the possibility of turning to Brev A100-80GB.
 
 
 ## 4. The Verification Plan
