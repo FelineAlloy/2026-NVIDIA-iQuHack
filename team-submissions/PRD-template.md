@@ -59,7 +59,6 @@ We build a hybrid system where **quantum generates “good starting strings”**
 * **Parallelisation (how we scale MTS without rewriting it into chaos):**
   - **Population-level parallelism:** children in a generation can be processed independently → evaluate and locally improve them in GPU batches.
   - **Tabu/local-search parallelism (candidate lists):** instead of evaluating all `N` one-bit flips one-by-one, evaluate a **candidate list** of `B` flips (e.g., 64 or 128) in a single batched GPU call and pick the best move.
-  - **Energy-evaluation batching:** compute energies for many candidates at once as GPU matrix-style operations, not Python loops.
 * **Motivation:** canonicalisation + deduplication increase *effective* diversity, reduce wasted evaluation on symmetry copies, and make both quantum seeding and MTS refinement more efficient end-to-end.
 
 ### Literature Review
