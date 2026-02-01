@@ -107,7 +107,7 @@ We implement a hybrid pipeline where quantum routines generate high-quality and 
 
 #### Strategy Overview
 
-Our quantum component is dominated by repeated execution and sampling of parameterized quantum circuits (DSWQA / Trotterized QAOA-like evolution) using **statevector-based simulation** in CUDA-Q. The computational cost scales exponentially with the number of qubits \(N\), both in **memory** $O(2^N)$ and **compute** $O(\text{depth} \cdot 2^N)$, making GPU selection, memory management, and parallelization strategy critical.
+Our quantum component is dominated by repeated execution and sampling of parameterized quantum circuits (DSWQA / Trotterized QAOA-like evolution) using **statevector-based simulation** in CUDA-Q. The computational cost scales exponentially with the number of qubits $N$, both in **memory** $O(2^N)$ and **compute** $O(\text{depth} \cdot 2^N)$, making GPU selection, memory management, and parallelization strategy critical.
 
 Our approach prioritizes **performance per dollar of credits**, **iteration speed**, and **scalability**, rather than raw peak throughput.
 
@@ -149,7 +149,6 @@ This phase maximizes **scientific output per GPU-hour** by enabling rapid iterat
 Once single-GPU memory limits are reached, we target **distributed statevector simulation**.
 
 - **Backend:** `nvidia-mgpu` (CUDA-Q)
-
 - **Strategy:**
     - Shard the statevector across multiple L4 GPUs;
     - Use qubit ordering and circuit structure to minimize cross-GPU communication;
@@ -191,10 +190,10 @@ This phase is **strictly limited to final demonstrations and result plots**.
 
 ### Hardware Targets
 **Dev Environment:**  
-qBraid CPU backend for algorithmic logic, kernel correctness, and small-$N$ self-validation, Brev L4 for initial GPU testing. 
+qBraid CPU backend for algorithmic logic, kernel correctness, and small $N$ self-validation, Brev L4 for initial GPU testing. 
 
 **Production Environment:**  
-Brev **L4** GPU backend for CUDA-Q acceleration, large-$N$ sampling experiments, and final benchmark runs, with multi-L4 scaling via the `nvidia-mgpu` backend when available. We will also look into the possibility of turning to Brev A100-80GB.
+Brev **L4** GPU backend for CUDA-Q acceleration, large $N$ sampling experiments, and final benchmark runs, with multi-L4 scaling via the `nvidia-mgpu` backend when available. We will also look into the possibility of turning to Brev A100-80GB.
 
 
 ## 4. The Verification Plan
